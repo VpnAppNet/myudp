@@ -780,7 +780,7 @@ setup_ssl() {
 }
 
 start_services() {
-    echo "Starting AGN-UDP"
+    echo "Starting JUE-UDP"
     apt update
     sudo debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v4 boolean true"
     sudo debconf-set-selections <<< "iptables-persistent iptables-persistent/autosave_v6 boolean true"
