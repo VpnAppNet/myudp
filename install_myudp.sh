@@ -648,11 +648,11 @@ perform_install_manager_script() {
     curl -o "$_manager_script" "https://raw.githubusercontent.com/VpnAppNet/myudp/main/myudp_manager.sh"
     chmod +x "$_manager_script"
     
-    echo "Creating symbolic link to run the manager script using 'jueudp' command..."
+    echo "Creating symbolic link to run the manager script using 'myudp' command..."
     ln -sf "$_manager_script" "$_symlink_path"
     
     echo "Manager script installed at $_manager_script"
-    echo "You can now run the manager using the 'jueudp' command."
+    echo "You can now run the manager using the 'myudp' command."
 }
 
 
