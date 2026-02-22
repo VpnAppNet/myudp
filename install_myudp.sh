@@ -721,7 +721,7 @@ perform_install() {
     if [[ -n "$_is_fresh_install" ]]; then
         echo
         echo -e "$(tbold)Congratulations! JUE-UDP has been successfully installed on your server.$(treset)"
-        echo "Use 'jueudp' command to access the manager."
+        echo "Use 'myudp' command to access the manager."
 
         echo
         echo -e "$(tbold)Client app Jaidee VPN:$(treset)"
