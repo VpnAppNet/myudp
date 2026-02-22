@@ -37,69 +37,45 @@ if [ "$HAS_EXPIRE" -eq 0 ]; then
   sqlite3 "$USER_DB" "ALTER TABLE users ADD COLUMN expire_date TEXT DEFAULT '2099-12-31';"
 fi
 
-# ================= REAL-TIME ONLINE API (UPDATED) =================
-# Flask နှင့် လိုအပ်သော dependencies များသွင်းခြင်း
+# ================= REAL-TIME ONLINE API (MODIFIED) =================
 apt-get update -y >/dev/null 2>&1
-apt-get install -y python3 python3-pip iproute2 sqlite3 jq curl >/dev/null 2>&1
-pip3 install flask --break-system-packages >/dev/null 2>&1 || pip3 install flask >/dev/null 2>&1
+apt-get install -y python3 python3-pip iproute2 >/dev/null 2>&1
+pip3 install flask >/dev/null 2>&1
 
 cat > "$API_FILE" <<'PYEOF'
 from flask import Flask, jsonify
 import subprocess
-import re
 
 app = Flask(__name__)
 
-def get_realtime_count():
+def realtime_udp():
     try:
-        # ss command သုံးပြီး established ဖြစ်နေသော UDP connection များကို ယူသည်
-        # Hysteria သည် UDP ကို အဓိကသုံးသောကြောင့် ss -u (udp) ကို စစ်ဆေးသည်
-        output = subprocess.check_output(["ss", "-unp", "state", "established"], stderr=subprocess.STDOUT).decode()
-        
-        # Connection တစ်ခုချင်းစီ၏ Remote Address ကို ရှာဖွေပြီး Unique IP များကို ရေတွက်သည်
-        # ၎င်းသည် ချိတ်ဆက်ထားသော လူအရေအတွက် (Unique Users) ကို ပိုမိုတိကျစေသည်
-        lines = output.splitlines()
-        clients = set()
-        for line in lines[1:]: # Skip header
-            parts = line.split()
-            if len(parts) >= 5:
-                remote_addr = parts[5] # Remote Address:Port
-                ip = remote_addr.rsplit(':', 1)[0]
-                clients.add(ip)
-        
-        return len(clients)
-    except Exception as e:
+        out = subprocess.check_output(
+            ["ss", "-u", "-n", "state", "established"],
+            stderr=subprocess.DEVNULL
+        ).decode()
+        lines = [l for l in out.splitlines() if ":" in l]
+        count = len(set(lines))
+        # Limit to 300 concurrent users
+        return count if count <= 300 else 300
+    except:
         return 0
 
-@app.route("/server/online")
-def online_old():
-    return jsonify({"online": get_realtime_count(), "status": "success"})
-
 @app.route("/udpserver/online_app")
-def online_app():
-    # အသုံးပြုသူ တောင်းဆိုထားသော URL အသစ်
-    count = get_realtime_count()
-    return jsonify({
-        "connected_users": count,
-        "server_status": "online",
-        "api_path": "/udpserver/online_app",
-        "msg": f"လက်ရှိချိတ်ဆက်ထားသူ {count} ဦးရှိပါသည်"
-    })
+def online():
+    return jsonify({"online": realtime_udp(), "mode": "real-time", "limit": 300})
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=81)
+app.run(host="0.0.0.0", port=81)
 PYEOF
 
-# Create SystemD Service
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=JUE UDP Real-Time Online API
+Description=Real-Time Online User API
 After=network.target
 
 [Service]
 ExecStart=/usr/bin/python3 $API_FILE
 Restart=always
-User=root
 
 [Install]
 WantedBy=multi-user.target
@@ -109,7 +85,7 @@ systemctl daemon-reload
 systemctl enable online-api >/dev/null 2>&1
 systemctl restart online-api >/dev/null 2>&1
 
-# ================= CORE FUNCTIONS =================
+# ================= CORE FUNCTIONS (ORIGINAL) =================
 fetch_users() {
   sqlite3 "$USER_DB" \
   "SELECT username || ':' || password FROM users WHERE date(expire_date)>=date('now');" \
@@ -118,16 +94,12 @@ fetch_users() {
 
 update_userpass_config() {
   users=$(fetch_users)
-  if [ -z "$users" ]; then
-    jq ".auth.config = []" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-  else
-    arr=$(echo "$users" | sed 's/,/" , "/g' | sed 's/^/"/' | sed 's/$/"/')
-    jq ".auth.config = [$arr]" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-  fi
+  arr=$(echo "$users" | awk -F, '{for(i=1;i<=NF;i++) printf "\"" $i "\"" ((i==NF)?"":",")}')
+  jq ".auth.config = [$arr]" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 }
 
 restart_server() {
-  systemctl restart hysteria-server >/dev/null 2>&1
+  systemctl restart hysteria-server
   echo -e "${GREEN}✔ ဆာဗာပြန်စတင်ပြီးပါပြီ${NC}"
 }
 
@@ -189,19 +161,18 @@ change_down_speed() {
 }
 
 uninstall_server() {
-  systemctl stop hysteria-server online-api
-  systemctl disable hysteria-server online-api
-  rm -rf "$CONFIG_DIR" /usr/local/bin/hysteria "$API_FILE" "$SERVICE_FILE"
+  systemctl stop hysteria-server
+  systemctl disable hysteria-server
+  rm -rf "$CONFIG_DIR" /usr/local/bin/hysteria
   systemctl daemon-reload
-  echo -e "${GREEN}✔ ဆာဗာနှင့် API အားလုံး ဖျက်သိမ်းပြီးပါပြီ${NC}"
+  echo -e "${GREEN}✔ ဆာဗာဖျက်သိမ်းပြီးပါပြီ${NC}"
 }
 
 online_user() {
-  echo -e "${CYAN}Real-Time Online Link:${NC}"
+  echo -e "${CYAN}Real-Time Online (limited to 300):${NC}"
   echo -e "${YELLOW}http://${SERVER_IP}:81/udpserver/online_app${NC}"
   echo
-  echo -e "${PINK}စစ်ဆေးနေသည်...${NC}"
-  curl -s "http://127.0.0.1:81/udpserver/online_app" | jq . || echo -e "${RED}API ချိတ်ဆက်၍မရပါ${NC}"
+  curl -s "http://${SERVER_IP}:81/udpserver/online_app" || echo "API ERROR"
 }
 
 # ================= BANNER =================
@@ -227,12 +198,14 @@ echo -e "${NC}"
 menu() {
   echo -e "${GREEN}"
   echo "╔══════════════════════════════════════════╗"
-  echo "║           JUE-UDP MANAGER (PRO)          ║"
+  echo "║           JUE-UDP MANAGER                ║"
   echo "╚══════════════════════════════════════════╝"
   echo -e "${NC}"
   
+  # Rainbow colors array
   rainbow_colors=("$RED" "$ORANGE" "$YELLOW" "$GREEN" "$CYAN" "$BLUE" "$PURPLE")
   
+  # Menu items with rainbow colors
   for i in {1..12}; do
     color_index=$(( (i-1) % ${#rainbow_colors[@]} ))
     color="${rainbow_colors[$color_index]}"
@@ -245,7 +218,7 @@ menu() {
       6) echo -e "${color}👉 6. Obfs ပြင်မည်${NC}" ;;
       7) echo -e "${color}👉 7. Upload Speed ပြင်မည်${NC}" ;;
       8) echo -e "${color}👉 8. Download Speed ပြင်မည်${NC}" ;;
-      9) echo -e "${color}👉 9. Online User (Link နှင့်ကြည့်ရန်)${NC}" ;;
+      9) echo -e "${color}👉 9. Online User (Real-Time)${NC}" ;;
       10) echo -e "${color}👉 10. ဆာဗာပြန်စတင်မည်${NC}" ;;
       11) echo -e "${color}👉 11. ဆာဗာဖျက်သိမ်းမည်${NC}" ;;
       12) echo -e "${color}👉 12. ထွက်မည်${NC}" ;;
@@ -275,6 +248,5 @@ while true; do
     12) exit ;;
     *) echo "Invalid" ;;
   esac
-  echo
-  read -p "ဆက်လက်ဆောင်ရွက်ရန် Enter နှိပ်ပါ..."
+  read -p "Enter နှိပ်ပါ..."
 done
