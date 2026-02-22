@@ -641,8 +641,8 @@ perform_install_hysteria_home_legacy() {
 }
 
 perform_install_manager_script() {
-    local _manager_script="/usr/local/bin/jueudp_manager.sh"
-    local _symlink_path="/usr/local/bin/jueudp"
+    local _manager_script="/usr/local/bin/myudp_manager.sh"
+    local _symlink_path="/usr/local/bin/myudp"
     
     echo "Downloading manager script..."
     curl -o "$_manager_script" "https://raw.githubusercontent.com/VpnAppNet/myudp/main/myudp_manager.sh"
